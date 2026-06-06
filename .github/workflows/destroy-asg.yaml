@@ -1,0 +1,69 @@
+name: Destroy Auto Scaling Group
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente a destruir'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+      confirm:
+        description: 'Escribe DESTROY para confirmar'
+        required: true
+
+jobs:
+
+  destroy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Validar confirmación
+        if: github.event.inputs.confirm != 'DESTROY'
+        run: |
+          echo "❌ Confirmación incorrecta. Debes escribir exactamente: DESTROY"
+          exit 1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Verificar que el stack existe
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name asg-stack-${{ github.event.inputs.environment }} \
+            > /dev/null 2>&1 || \
+            (echo "❌ El stack asg-stack-${{ github.event.inputs.environment }} no existe." && exit 1)
+
+      - name: Destruir stack CloudFormation
+        run: |
+          echo "🗑️ Eliminando stack asg-stack-${{ github.event.inputs.environment }}..."
+          aws cloudformation delete-stack \
+            --stack-name asg-stack-${{ github.event.inputs.environment }}
+
+      - name: Esperar a que el stack sea eliminado
+        run: |
+          echo "⏳ Esperando eliminación completa..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name asg-stack-${{ github.event.inputs.environment }}
+
+      - name: Confirmar eliminación
+        run: |
+          echo "## 🗑️ Stack eliminado exitosamente!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Stack eliminado** | asg-stack-${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Ambiente** | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Eliminado por** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Fecha** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
