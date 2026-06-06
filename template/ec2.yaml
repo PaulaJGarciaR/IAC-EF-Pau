@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 con Auto Scaling Group creada desde GitHub Actions
+
+Resources:
+
+  # Security Group para las instancias
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Permite trafico HTTP
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: SG-GitHubActions
+
+  # Launch Template — reemplaza la EC2 directa
+  MyLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: ami-0cca150d127c2216f
+        InstanceType: t3.micro
+        SecurityGroupIds:
+          - !Ref MySecurityGroup
+        Tags:
+          - Key: Name
+            Value: EC2-GitHubActions
+
+  # Auto Scaling Group
+  MyASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: ASG-GitHubActions
+      MinSize: '1'
+      MaxSize: '3'
+      DesiredCapacity: '1'
+      AvailabilityZones:
+        - us-east-1a
+        - us-east-1b
+      LaunchTemplate:
+        LaunchTemplateId: !Ref MyLaunchTemplate
+        Version: !GetAtt MyLaunchTemplate.LatestVersionNumber
+      Tags:
+        - Key: Name
+          Value: EC2-GitHubActions
+          PropagateAtLaunch: true
+
+  # Politica de escalado automatico
+  MyScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref MyASG
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 70.0
+
+Outputs:
+
+  ASGName:
+    Value: !Ref MyASG
+
+  LaunchTemplateId:
+    Value: !Ref MyLaunchTemplate
