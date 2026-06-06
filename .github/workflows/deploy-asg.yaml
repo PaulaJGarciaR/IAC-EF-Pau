@@ -1,0 +1,98 @@
+name: Deploy Auto Scaling Group
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de despliegue'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+      min_instances:
+        description: 'Número mínimo de instancias'
+        required: true
+        default: '1'
+
+      max_instances:
+        description: 'Número máximo de instancias'
+        required: true
+        default: '3'
+
+      desired_capacity:
+        description: 'Capacidad deseada'
+        required: true
+        default: '2'
+
+      instance_type:
+        description: 'Tipo de instancia EC2'
+        required: true
+        default: 't3.micro'
+        type: choice
+        options:
+          - t3.micro
+          - t3.small
+          - t3.medium
+
+jobs:
+
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Validate CloudFormation Template
+        run: |
+          aws cloudformation validate-template \
+            --template-body file://template/asg.yaml
+
+      - name: Deploy CloudFormation Stack - Auto Scaling Group
+        run: |
+          aws cloudformation deploy \
+            --template-file template/asg.yaml \
+            --stack-name asg-stack-${{ github.event.inputs.environment }} \
+            --parameter-overrides \
+                EnvironmentName=${{ github.event.inputs.environment }} \
+                MinInstances=${{ github.event.inputs.min_instances }} \
+                MaxInstances=${{ github.event.inputs.max_instances }} \
+                DesiredCapacity=${{ github.event.inputs.desired_capacity }} \
+                InstanceType=${{ github.event.inputs.instance_type }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --no-fail-on-empty-changeset
+
+      - name: Obtener Outputs del Stack
+        run: |
+          echo "## 🚀 Despliegue exitoso!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          ASG_NAME=$(aws cloudformation describe-stacks \
+            --stack-name asg-stack-${{ github.event.inputs.environment }} \
+            --query "Stacks[0].Outputs[?OutputKey=='AutoScalingGroupName'].OutputValue" \
+            --output text)
+
+          ALB_DNS=$(aws cloudformation describe-stacks \
+            --stack-name asg-stack-${{ github.event.inputs.environment }} \
+            --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" \
+            --output text)
+
+          echo "| Recurso | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Ambiente** | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Scaling Group** | $ASG_NAME |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Load Balancer URL** | http://$ALB_DNS |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Min / Desired / Max** | ${{ github.event.inputs.min_instances }} / ${{ github.event.inputs.desired_capacity }} / ${{ github.event.inputs.max_instances }} |" >> $GITHUB_STEP_SUMMARY
